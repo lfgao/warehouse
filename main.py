@@ -4,36 +4,36 @@ class Block():
         self.qty = qty
         self.parent = None
         self.child = None
-        
+
         if is_src:
             self.parent = 'SRC'
         elif parent is not None:
             self.add_parent(parent)
-            
+
         if child is not None:
             self.add_child(child)
-            
+
     def is_src(self):
         return self.parent == 'SRC'
-    
+
     def set_to_src(self):
         #Set self as source
         if self.parent is not None:
             raise Warning('Cannot set to source with existing parent')
         self.parent = 'SRC'
-        
+
     def update_qty(self, newqty):
         self.qty = newqty
-        
+
     def add_parent(self, parent_block):
-        #Add a two way link to a parent block 
+        #Add a two way link to a parent block
         if (self.parent is not None) or (parent_block.child is not None):
             raise Warning('Error')
         elif self.qty != parent_block.qty:
             raise Warning('Not matching qty')
         parent_block.child = self
         self.parent = parent_block
-    
+
     def add_child(self, child_block):
         #Add a two way link to a child block
         if (self.child is not None) or (child_block.parent is not None):
@@ -42,20 +42,20 @@ class Block():
             raise Warning('Not matching qty')
         child_block.parent = self
         self.child = child_block
-    
+
     def get_source_block(self):
         if self.is_src() or (self.parent is None):
             return self
         else:
             return self.parent.get_source_block()
-    
+
     def get_end_block(self):
         #Traverse the childs
         if self.child is None:
             return self
         else:
             return self.child.get_end_block()
-        
+
     def get_qty(self):
         #Returns net qty of this block
         #Positive = flow into block
@@ -70,7 +70,7 @@ class Block():
             return -self.qty
         else:
             raise Warning('No parent and child!')
-            
+
 def get_rx_qty(block):
     #Given a block, return qty to be matched if it were to recieve new flow
     if block is not None:
@@ -92,17 +92,38 @@ def update_and_add(dict_, key_, val_):
         dict_[key_] = val_
     else:
         dict_[key_] += val_
-        
+
 class Graph():
     def __init__(self):
-        self.nodes = {}
+        self.reset()
         pass
-    
+
+    def reset(self):
+        self.nodes = {}
+        self.transactions = []
+
+    def undo(self):
+        trans_lst = self.transactions[:]
+        self.reset()
+        if len(trans_lst) > 0:
+            for trans in trans_lst[:-1]:
+                if trans[0] == 'S':
+                    self.add_source(trans[1], trans[2])
+                elif trans[0] == 'T':
+                    self.transact(trans[1], trans[2], trans[3])
+
     def add_node(self, nodename):
         if nodename in self.nodes:
             raise Warning('Node already exists')
         self.nodes[nodename] = []
-    
+
+    def show_transactions(self):
+        for i, cur_trans in enumerate(self.transactions):
+            if cur_trans[0] == 'T':
+                print('%d: %s ==> %s [%d]'%(i + 1, cur_trans[1], cur_trans[2], cur_trans[3]))
+            elif cur_trans[0] == 'S':
+                print('%d: *  ==> %s [%d]'%(i + 1, cur_trans[1], cur_trans[2]))
+
     def split_parents(self, block, new_qty):
         #Given a block and a quantity, split the block and all its parents into two blocks
         if block.child is not None:
@@ -124,7 +145,7 @@ class Graph():
             if curblock.is_src():
                 break
             curblock = curblock.parent
-            
+
     def split_children(self, block, new_qty):
         #Given a block and a quantity, split the block and all its children into two blocks
         if block.parent is not None:
@@ -140,27 +161,28 @@ class Graph():
             curnode = self.nodes[curnodename] #List of blocks of the current node
             curblock.update_qty(remain_qty) #Shrink current node's quantity
             #Create a new split block and insert into front of current block, link parent to prev_newblock
-            newblock = Block(curnodename, new_qty, parent = prev_newblock) 
+            newblock = Block(curnodename, new_qty, parent = prev_newblock)
             curnode.insert(curnode.index(curblock), newblock)
             prev_newblock = newblock
             curblock = curblock.child
-            
+
     def get_first_block(self, node_name):
         #gvien a node, return the first non-matched block
         for curblock in self.nodes[node_name]:
             if (curblock.parent is None) or (curblock.child is None):
                 return curblock
         return None
-    
+
     def add_block(self, node, qty, is_src = False):
         newblock = Block(node, qty, is_src = is_src)
         self.nodes[node].append(newblock)
         return newblock
-        
+
     def add_source(self, node_name, qty):
+
         if not node_name in self.nodes:
             self.add_node(node_name)
-        
+
         if qty < 0:
             raise Warning('Cannot have negative quantity')
         qty_remain = qty
@@ -179,8 +201,9 @@ class Graph():
                 self.split_children(curblock, qty_remain)
                 curqty = 0
             qty_remain = qty_remain - curqty
-            
-            
+        self.transactions.append(('S',node_name, qty))
+
+
     def transact(self, from_node, to_node, qty):
         if qty < 0:
             raise Warning('Cannot have negative quantity')
@@ -188,14 +211,14 @@ class Graph():
             self.add_node(from_node)
         if to_node not in self.nodes:
             self.add_node(to_node)
-            
+
         qty_remain = qty
         while qty_remain > 0:
             from_block = self.get_first_block(from_node)
             to_block = self.get_first_block(to_node)
-            
+
             tx_qty = get_tx_qty(from_block) #Quantity to be transfered out
-            rx_qty = get_rx_qty(to_block) #Quantity to be transfered to 
+            rx_qty = get_rx_qty(to_block) #Quantity to be transfered to
             min_qty = min([x for x in [tx_qty, rx_qty, qty_remain] if x is not None])
 
             if tx_qty is not None:
@@ -207,17 +230,18 @@ class Graph():
                     self.split_children(to_block, min_qty)
                     continue
             #At this stage, there should be no need for splitting
-            
+
             if tx_qty is None:
                 #Create a new block for tx
                 from_block = self.add_block(from_node, min_qty)
             if rx_qty is None:
                 #Create a new block for rx
                 to_block = self.add_block(to_node, min_qty)
-                
+
             from_block.add_child(to_block)
             qty_remain = qty_remain - min_qty
-            
+        self.transactions.append(('T',from_node, to_node, qty))
+
     def show_inventory(self):
         for curnode in sorted(self.nodes.keys()):
             chain = []
@@ -234,7 +258,7 @@ class Graph():
                 chain.append(qty)
             tot_qty = sum([x.get_qty() for x in self.nodes[curnode]])
             print('%s(%d): %s'%(curnode, tot_qty, ','.join(chain)))
-            
+
     def show_source_detailed(self, node):
         for curblock in self.nodes[node]:
             path = []
@@ -243,7 +267,7 @@ class Graph():
                 raise Warning('Unmatched!')
             elif qty == 0:
                 continue
-                
+
             while (curblock is not None):
                 curnode = curblock.node_name
                 if curblock.is_src():
@@ -270,8 +294,8 @@ class Graph():
             print('%s[matched]: %s'%(node, ', '.join(['%d(%s)'%(value, key) for key, value in matched.items()])))
 
         if len(unmatched) > 0:
-            print('%s[unmatched]: %s'%(node, ', '.join(['%d(%s)'%(value, key) for key, value in unmatched.items()])))            
-            
+            print('%s[unmatched]: %s'%(node, ', '.join(['%d(%s)'%(value, key) for key, value in unmatched.items()])))
+
     def show_dispense(self, node):
         children = {}
         for curblock in self.nodes[node]:
@@ -279,33 +303,40 @@ class Graph():
             update_and_ad(childs, endblock.node_name, endblock.qty)
         print('Child nodes:')
         print(', '.join(['%d %s'%(value, key) for key, value in children.items()]))
-        
+
     def show_all_source(self):
         for curnodename in self.nodes:
             self.show_source(curnodename)
-            
-a = Graph()
-a.add_source('A001', 100)
-a.add_source('A002', 100)
-a.add_source('A003', 100)
-a.transact('A001','A004', 100)
-a.transact('A002','A004', 100)
-a.transact('A003','A005', 20)
-a.transact('A003','A006', 80)
-a.transact('A004','A007',40)
-a.transact('A004','A008', 160)
-a.transact('A005','A008', 20)
-a.transact('A006','A008',80)
-a.transact('A007','A009', 40)
-a.transact('A008', 'A009', 60)
-a.transact('A008','A010', 100)
-a.transact('A008','A011', 100)
-a.show_inventory()
-print("\nShowing source summary")
-a.show_all_source()
-print("\nShowing detailed path")
 
-for curnode in a.nodes:
-    if a.get_node_qty(curnode) > 0:
-        print('---------- %s ---------'%curnode)
-        a.show_source_detailed(curnode)
+    def show_all_detailed(self):
+        for curnode in self.nodes:
+                if self.get_node_qty(curnode) > 0:
+                    print('----------%s---------'%curnode)
+                    self.show_source_detailed(curnode)
+
+if __name__ == '__main__':
+    a = Graph()
+    a.add_source('A001', 100)
+    a.add_source('A002', 100)
+    a.add_source('A003', 100)
+    a.transact('A001','A004', 100)
+    a.transact('A002','A004', 100)
+    a.transact('A003','A005', 20)
+    a.transact('A003','A006', 80)
+    a.transact('A004','A007',40)
+    a.transact('A004','A008', 160)
+    a.transact('A005','A008', 20)
+    a.transact('A006','A008',80)
+    a.transact('A007','A009', 40)
+    a.transact('A008', 'A009', 60)
+    a.transact('A008','A010', 100)
+    a.transact('A008','A011', 100)
+    a.show_inventory()
+    print("\nShowing source summary")
+    a.show_all_source()
+    print("\nShowing detailed path")
+
+    for curnode in a.nodes:
+        if a.get_node_qty(curnode) > 0:
+            print('---------- %s ---------'%curnode)
+            a.show_source_detailed(curnode)

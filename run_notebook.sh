@@ -1,0 +1,1 @@
+docker run -p 8888:8888 -v /Users/lingfenggao/git/warehouse:/home/jovyan/work jupyter/scipy-notebook start-notebook.sh --NotebookApp.ip='*' --NotebookApp.password='sha1:b7d7ea4a7efc:0e7732b18f9faf64d798a57cf21ed1debb33655a'
